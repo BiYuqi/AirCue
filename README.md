@@ -1,21 +1,35 @@
-# TG Audio Bot
+# AirCue
+
+> **Sound back, stay calm.**
+> 以声回击，保持优雅。
 
 通过 Telegram 远程控制 macOS 本地音频定时播放的 Bot。
+
+---
+
+## 使用场景
+
+手机 Telegram 作为遥控器，Mac 在家运行 Bot，蓝牙连接骨传导音响——随时发起，定时循环，优雅反制楼上噪音。
+
+```
+手机 TG  ──→  Telegram Bot  ──→  Mac（运行 AirCue）  ──→  骨传导蓝牙音响
+```
 
 ---
 
 ## 环境要求
 
 - macOS（依赖系统内置 `afplay`）
-- Python 3.10+
+- Python 3.14+
+- ffmpeg（可选，用于 mp4 转 m4a）
 
 ---
 
 ## 安装
 
 ```bash
-# 克隆/下载项目后进入目录
-cd tg-audio-bot
+# 进入项目目录（clone 下来的文件夹）
+cd AirCue
 
 # 创建虚拟环境
 python3 -m venv venv
@@ -24,7 +38,7 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 
 # 配置 .env
-cp .env.example .env
+cp env.example .env
 # 编辑 .env，填入 TG_BOT_TOKEN
 ```
 
@@ -35,44 +49,64 @@ cp .env.example .env
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `TG_BOT_TOKEN` | — | BotFather 获取的 Token，必填 |
-| `INTERVAL_MINUTES` | 60 | 定时播放间隔（分钟） |
-| `PLAY_DURATION_SECONDS` | 60 | 定时每次播放时长（秒） |
-| `TEST_DURATION_SECONDS` | 20 | 测试播放时长（秒） |
 | `DEFAULT_AUDIO` | 02_audio.m4a | 默认音频文件名 |
+| `LONG_INTERVAL_MINUTES` | 60 | 长间隔模式播放间隔（分钟） |
+| `LONG_DURATION_SECONDS` | 60 | 长间隔模式每次播放时长（秒） |
+| `SHORT_MIN_MINUTES` | 3 | 短间隔模式最小间隔（分钟） |
+| `SHORT_MAX_MINUTES` | 10 | 短间隔模式最大间隔（分钟） |
+| `SHORT_DURATION_SECONDS` | 30 | 短间隔模式每次播放时长（秒） |
+| `TEST_DURATION_SECONDS` | 30 | 测试播放时长（秒） |
+| `RANDOM_ENABLED` | off | 随机播放开关（on/off） |
 
 ---
 
 ## 音频文件
 
-将音频文件放在项目根目录的 `audio/` 子目录下，命名格式：`01_audio.m4a`、`02_audio.m4a`、`03_audio.m4a`……
+将音频文件放在 `audio/` 目录下，命名格式：`01_audio.m4a`、`02_audio.m4a`……
 
-`/select` 命令会自动扫描 `audio/` 目录中所有符合格式的文件。
+mp4 转 m4a：
+```bash
+ffmpeg -i input.mp4 -vn -acodec copy output.m4a
+```
+
+`/select` 命令会动态扫描目录，新增文件无需重启。
 
 ---
 
-## 启动
+## 启动 / 停止
 
 ```bash
-bash start.sh
+./start.sh   # 启动
+./stop.sh    # 停止
 ```
 
 ---
 
-## 命令说明
+## 命令列表
 
+### 调度
 | 命令 | 说明 |
 |------|------|
-| `/schedule_start` | 启动定时任务，按设定间隔循环播放 |
-| `/schedule_stop` | 停止定时任务，立即中止当前播放 |
-| `/test` | 测试播放当前音频（定时任务播放中则拒绝） |
-| `/select` | 弹出文件列表，点击切换当前音频 |
-| `/set_interval 30` | 设置定时间隔为 30 分钟，运行中立即生效 |
-| `/set_duration 90` | 设置定时播放时长为 90 秒 |
-| `/set_test_duration 15` | 设置测试播放时长为 15 秒 |
-| `/status` | 查看当前配置和运行状态 |
+| `/schedule_long` | 启动长间隔模式（固定约60分钟） |
+| `/schedule_short` | 启动短间隔模式（3~10分钟随机） |
+| `/schedule_stop` | 停止定时任务 |
 
----
+### 播放
+| 命令 | 说明 |
+|------|------|
+| `/test` | 一次性测试播放 |
+| `/stop` | 紧急停止所有音频 |
+| `/select` | 选择音频文件 |
+| `/volume [0-100]` | 查看或设置系统音量 |
 
-## 停止 Bot
-
-`Ctrl+C` 终止脚本即可，正在播放的音频会随进程退出自动停止。
+### 配置
+| 命令 | 说明 |
+|------|------|
+| `/set_random on/off` | 开关随机播放 |
+| `/set_long_interval <分钟>` | 设置长间隔 |
+| `/set_long_duration <秒>` | 设置长间隔播放时长 |
+| `/set_short_min <分钟>` | 设置短间隔最小值 |
+| `/set_short_max <分钟>` | 设置短间隔最大值 |
+| `/set_short_duration <秒>` | 设置短间隔播放时长 |
+| `/set_test_duration <秒>` | 设置测试播放时长 |
+| `/status` | 查看当前状态 |
