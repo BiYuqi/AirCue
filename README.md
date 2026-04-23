@@ -72,7 +72,15 @@ cp env.example .env
 yt-dlp -x --audio-format m4a "https://www.bilibili.com/video/BV1VoBSYaEgi"
 ```
 
-下载后重命名为 `01_audio.m4a`、`02_audio.m4a` 格式，放入 `audio/` 目录。
+下载后重命名为 `01_audio.m4a`、`02_audio.m4a` 格式，放入项目根目录下的 `audio/` 文件夹：
+
+```
+AirCue/
+└── audio/
+    ├── 01_audio.m4a
+    ├── 02_audio.m4a
+    └── 03_audio.m4a
+```
 
 若下载的是 mp4 视频文件，用 ffmpeg 提取音频：
 ```bash
