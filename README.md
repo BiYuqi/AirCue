@@ -100,6 +100,14 @@ ffmpeg -i input.mp4 -vn -acodec copy output.m4a
 
 ---
 
+## 预览
+
+| 状态面板 | 命令菜单 |
+|:---:|:---:|
+| ![状态面板](screenshot/01.jpeg) | ![命令菜单](screenshot/02.jpeg) |
+
+---
+
 ## 命令列表
 
 ### 调度
