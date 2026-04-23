@@ -5,7 +5,6 @@
 venv/
 
 # 音频文件
-audio/
 
 # Python 缓存
 __pycache__/
@@ -17,3 +16,5 @@ __pycache__/
 
 # 日志
 *.log
+
+FeiShuClaude.md
