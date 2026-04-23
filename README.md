@@ -62,9 +62,19 @@ cp env.example .env
 
 ## 音频文件
 
-将音频文件放在 `audio/` 目录下，命名格式：`01_audio.m4a`、`02_audio.m4a`……
+推荐去 [哔哩哔哩](https://www.bilibili.com) 搜索白噪音、自然音效、环境音等视频，用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 下载：
 
-mp4 转 m4a：
+1. 在视频页面右键 → 复制链接，格式如：
+   `https://www.bilibili.com/video/BV1VoBSYaEgi`
+2. 用 yt-dlp 下载为 m4a 音频：
+
+```bash
+yt-dlp -x --audio-format m4a "https://www.bilibili.com/video/BV1VoBSYaEgi"
+```
+
+下载后重命名为 `01_audio.m4a`、`02_audio.m4a` 格式，放入 `audio/` 目录。
+
+若下载的是 mp4 视频文件，用 ffmpeg 提取音频：
 ```bash
 ffmpeg -i input.mp4 -vn -acodec copy output.m4a
 ```
