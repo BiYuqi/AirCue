@@ -92,7 +92,7 @@ def update_env(key: str, value: str) -> None:
 
 
 def get_audio_files() -> list[str]:
-    return sorted(f.name for f in AUDIO_DIR.glob("??_audio.m4a"))
+    return sorted(f.name for f in AUDIO_DIR.glob("*_audio.m4a"))
 
 
 def pick_audio() -> str:
@@ -130,7 +130,7 @@ async def schedule_loop(mode: str) -> None:
             logging.info("schedule(%s): started afplay pid=%s file=%s duration=%ss", mode, proc.pid, audio, duration)
             state["schedule_process"] = proc
             state["schedule_playing"] = True
-            await asyncio.sleep(duration)
+            await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=duration)
         except asyncio.CancelledError:
             raise
         except Exception:
