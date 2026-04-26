@@ -398,6 +398,32 @@ async def cmd_volume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(f"🔊 系统音量已设置为 {vol}")
 
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = (
+        "📖 命令列表\n\n"
+        "▶ 调度\n"
+        "  /schedule_long — 启动长间隔模式\n"
+        "  /schedule_short — 启动短间隔模式\n"
+        "  /schedule_stop — 停止定时任务\n\n"
+        "🔊 播放\n"
+        "  /test — 测试播放\n"
+        "  /stop — 紧急停止所有播放\n"
+        "  /select — 选择音频文件\n"
+        "  /volume — 查看音量\n"
+        "  /volume <0-100> — 设置音量\n\n"
+        "⚙️ 配置\n"
+        "  /set_random on/off — 随机播放开关\n"
+        "  /set_long_interval <分钟> — 长间隔时长\n"
+        "  /set_long_duration <秒> — 长间隔播放时长\n"
+        "  /set_short_min <分钟> — 短间隔最小值\n"
+        "  /set_short_max <分钟> — 短间隔最大值\n"
+        "  /set_short_duration <秒> — 短间隔播放时长\n"
+        "  /set_test_duration <秒> — 测试播放时长\n\n"
+        "📋 /status — 查看当前状态"
+    )
+    await update.message.reply_text(text)
+
+
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     task = state["schedule_task"]
     running = task and not task.done()
@@ -441,6 +467,7 @@ def main() -> None:
 
     app = ApplicationBuilder().token(token).build()
 
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("schedule_long", cmd_schedule_long))
     app.add_handler(CommandHandler("schedule_short", cmd_schedule_short))
     app.add_handler(CommandHandler("schedule_stop", cmd_schedule_stop))
