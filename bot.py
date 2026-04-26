@@ -121,7 +121,9 @@ def update_env(key: str, value: str) -> None:
             break
     if not found:
         lines.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n")
+    tmp = ENV_PATH.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    tmp.rename(ENV_PATH)
 
 
 def get_audio_files() -> list[str]:
@@ -168,8 +170,8 @@ async def schedule_loop(mode: str) -> None:
             await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=duration)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error("schedule_loop: unexpected error: %s", e)
         finally:
             kill_process(proc)
             state["schedule_playing"] = False
@@ -265,7 +267,11 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     kill_all_audio()
-    await update.message.reply_text("🛑 已强制停止所有音频播放")
+    task = state["schedule_task"]
+    if task and not task.done():
+        await update.message.reply_text("🛑 已停止当前播放（定时任务仍在运行，如需停止请用 /schedule_stop）")
+    else:
+        await update.message.reply_text("🛑 已停止当前播放")
 
 
 async def cmd_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
