@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import datetime
 import logging
 import os
 import random
@@ -23,6 +24,7 @@ from telegram.ext import (
 
 ENV_PATH = Path(__file__).parent / ".env"
 AUDIO_DIR = Path(__file__).parent / "audio"
+LOG_PATH = Path(__file__).parent / "play.log"
 
 load_dotenv(ENV_PATH)
 
@@ -46,6 +48,7 @@ state = {
     "schedule_process": None,
     "schedule_playing": False,
     "test_process": None,
+    "next_play_time": None,        # datetime，等待期间下次播放的预计时间
 }
 
 
@@ -76,6 +79,36 @@ def kill_all_audio() -> None:
 
 
 atexit.register(kill_all_audio)
+
+
+def log_play(source: str, audio: str) -> None:
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{ts}  [{source}]  {audio}\n")
+    except Exception as e:
+        logging.warning("log_play: write failed (%s)", e)
+
+
+def format_next_play(dt: datetime.datetime) -> str:
+    delta = dt - datetime.datetime.now()
+    minutes = max(0, int(delta.total_seconds() / 60))
+    h = dt.hour
+    if h < 6:
+        period = "凌晨"
+    elif h < 9:
+        period = "早晨"
+    elif h < 12:
+        period = "上午"
+    elif h == 12:
+        period = "中午"
+    elif h < 18:
+        period = "下午"
+    elif h < 21:
+        period = "晚上"
+    else:
+        period = "深夜"
+    return f"{minutes} 分钟后（{period}{dt.strftime('%H:%M')}）"
 
 
 def update_env(key: str, value: str) -> None:
@@ -110,6 +143,7 @@ def pick_audio() -> str:
 
 async def schedule_loop(mode: str) -> None:
     while True:
+        state["next_play_time"] = None
         audio = pick_audio()
         filepath = AUDIO_DIR / audio
         if not filepath.exists():
@@ -128,6 +162,7 @@ async def schedule_loop(mode: str) -> None:
                 else state["short_duration_seconds"]
             )
             logging.info("schedule(%s): started afplay pid=%s file=%s duration=%ss", mode, proc.pid, audio, duration)
+            log_play(f"schedule_{mode}", audio)
             state["schedule_process"] = proc
             state["schedule_playing"] = True
             await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=duration)
@@ -144,7 +179,8 @@ async def schedule_loop(mode: str) -> None:
             wait = state["long_interval_minutes"] * 60
         else:
             wait = random.randint(state["short_min_minutes"], state["short_max_minutes"]) * 60
-        logging.info("schedule(%s): next play in %ds", mode, wait)
+        state["next_play_time"] = datetime.datetime.now() + datetime.timedelta(seconds=wait)
+        logging.info("schedule(%s): next play in %ds at %s", mode, wait, state["next_play_time"].strftime("%H:%M"))
         await asyncio.sleep(wait)
 
 
@@ -156,6 +192,7 @@ def _start_schedule(mode: str) -> None:
         state["schedule_process"] = None
         state["schedule_playing"] = False
     state["schedule_mode"] = mode
+    state["next_play_time"] = None
     state["schedule_task"] = asyncio.create_task(schedule_loop(mode))
 
 
@@ -185,6 +222,7 @@ async def cmd_schedule_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     task.cancel()
     state["schedule_task"] = None
     state["schedule_mode"] = None
+    state["next_play_time"] = None
     kill_process(state["schedule_process"])
     state["schedule_process"] = None
     state["schedule_playing"] = False
@@ -216,6 +254,7 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         state["test_process"] = proc
         logging.info("test: started afplay pid=%s file=%s duration=%ss", proc.pid, audio, state["test_duration_seconds"])
+        log_play("test", audio)
         asyncio.create_task(_kill_after(proc, state["test_duration_seconds"], "test_process"))
         await update.message.reply_text(
             f"🧪 开始测试播放 {audio}，持续 {state['test_duration_seconds']} 秒"
@@ -363,10 +402,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     task = state["schedule_task"]
     running = task and not task.done()
     mode = state["schedule_mode"]
-    if running and mode == "long":
-        schedule_str = f"运行中（长间隔）"
-    elif running and mode == "short":
-        schedule_str = f"运行中（短间隔）"
+    if running and state["schedule_playing"]:
+        mode_label = "长间隔" if mode == "long" else "短间隔"
+        schedule_str = f"运行中（{mode_label}，播放中）"
+    elif running and state["next_play_time"]:
+        mode_label = "长间隔" if mode == "long" else "短间隔"
+        schedule_str = f"运行中（{mode_label}）\n⏭ 下次播放：{format_next_play(state['next_play_time'])}"
+    elif running:
+        mode_label = "长间隔" if mode == "long" else "短间隔"
+        schedule_str = f"运行中（{mode_label}）"
     else:
         schedule_str = "已停止"
 
