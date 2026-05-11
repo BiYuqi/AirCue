@@ -33,9 +33,9 @@ state = {
     # long mode
     "long_interval_minutes": int(os.getenv("LONG_INTERVAL_MINUTES", "60")),
     "long_duration_seconds": int(os.getenv("LONG_DURATION_SECONDS", "60")),
-    # short mode
-    "short_min_minutes": int(os.getenv("SHORT_MIN_MINUTES", "3")),
-    "short_max_minutes": int(os.getenv("SHORT_MAX_MINUTES", "10")),
+    # short mode（内部统一秒，兼容旧 _MINUTES 环境变量）
+    "short_min_seconds": int(os.getenv("SHORT_MIN_SECONDS") or "") if os.getenv("SHORT_MIN_SECONDS") else int(os.getenv("SHORT_MIN_MINUTES", "3")) * 60,
+    "short_max_seconds": int(os.getenv("SHORT_MAX_SECONDS") or "") if os.getenv("SHORT_MAX_SECONDS") else int(os.getenv("SHORT_MAX_MINUTES", "10")) * 60,
     "short_duration_seconds": int(os.getenv("SHORT_DURATION_SECONDS", "30")),
     # test
     "test_duration_seconds": int(os.getenv("TEST_DURATION_SECONDS", "20")),
@@ -126,6 +126,26 @@ def update_env(key: str, value: str) -> None:
     tmp.rename(ENV_PATH)
 
 
+def parse_duration(arg: str) -> int | None:
+    """解析时长参数，返回秒数。30s=30秒，2m=120秒，无后缀按分钟。"""
+    arg = arg.strip().lower()
+    if arg.endswith('s'):
+        num, multiplier = arg[:-1], 1
+    elif arg.endswith('m'):
+        num, multiplier = arg[:-1], 60
+    else:
+        num, multiplier = arg, 60
+    if not num.isdigit() or int(num) <= 0:
+        return None
+    return int(num) * multiplier
+
+
+def format_interval(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} 秒"
+    return f"{seconds // 60} 分钟"
+
+
 def get_audio_files() -> list[str]:
     return sorted(f.name for f in AUDIO_DIR.glob("*_audio.m4a"))
 
@@ -180,7 +200,7 @@ async def schedule_loop(mode: str) -> None:
         if mode == "long":
             wait = state["long_interval_minutes"] * 60
         else:
-            wait = random.randint(state["short_min_minutes"], state["short_max_minutes"]) * 60
+            wait = random.randint(state["short_min_seconds"], state["short_max_seconds"])
         state["next_play_time"] = datetime.datetime.now() + datetime.timedelta(seconds=wait)
         logging.info("schedule(%s): next play in %ds at %s", mode, wait, state["next_play_time"].strftime("%H:%M"))
         await asyncio.sleep(wait)
@@ -211,7 +231,7 @@ async def cmd_schedule_short(update: Update, context: ContextTypes.DEFAULT_TYPE)
     _start_schedule("short")
     await update.message.reply_text(
         f"✅ 短间隔模式已启动\n"
-        f"⏰ 间隔：{state['short_min_minutes']}～{state['short_max_minutes']} 分钟随机\n"
+        f"⏰ 间隔：{format_interval(state['short_min_seconds'])}～{format_interval(state['short_max_seconds'])} 随机\n"
         f"🔊 播放时长：{state['short_duration_seconds']} 秒"
     )
 
@@ -322,30 +342,30 @@ async def cmd_set_long_duration(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cmd_set_short_min(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
-    if not args or not args[0].isdigit() or int(args[0]) <= 0:
-        await update.message.reply_text("用法：/set_short_min 3")
+    seconds = parse_duration(args[0]) if args else None
+    if not seconds:
+        await update.message.reply_text("用法：/set_short_min 3（分钟）或 /set_short_min 30s（秒）")
         return
-    minutes = int(args[0])
-    if minutes >= state["short_max_minutes"]:
-        await update.message.reply_text(f"最小值必须小于当前最大值 {state['short_max_minutes']} 分钟")
+    if seconds >= state["short_max_seconds"]:
+        await update.message.reply_text(f"最小值必须小于当前最大值 {format_interval(state['short_max_seconds'])}")
         return
-    state["short_min_minutes"] = minutes
-    update_env("SHORT_MIN_MINUTES", str(minutes))
-    await update.message.reply_text(f"✅ 短间隔最小值已更新为 {minutes} 分钟")
+    state["short_min_seconds"] = seconds
+    update_env("SHORT_MIN_SECONDS", str(seconds))
+    await update.message.reply_text(f"✅ 短间隔最小值已更新为 {format_interval(seconds)}")
 
 
 async def cmd_set_short_max(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
-    if not args or not args[0].isdigit() or int(args[0]) <= 0:
-        await update.message.reply_text("用法：/set_short_max 10")
+    seconds = parse_duration(args[0]) if args else None
+    if not seconds:
+        await update.message.reply_text("用法：/set_short_max 10（分钟）或 /set_short_max 90s（秒）")
         return
-    minutes = int(args[0])
-    if minutes <= state["short_min_minutes"]:
-        await update.message.reply_text(f"最大值必须大于当前最小值 {state['short_min_minutes']} 分钟")
+    if seconds <= state["short_min_seconds"]:
+        await update.message.reply_text(f"最大值必须大于当前最小值 {format_interval(state['short_min_seconds'])}")
         return
-    state["short_max_minutes"] = minutes
-    update_env("SHORT_MAX_MINUTES", str(minutes))
-    await update.message.reply_text(f"✅ 短间隔最大值已更新为 {minutes} 分钟")
+    state["short_max_seconds"] = seconds
+    update_env("SHORT_MAX_SECONDS", str(seconds))
+    await update.message.reply_text(f"✅ 短间隔最大值已更新为 {format_interval(seconds)}")
 
 
 async def cmd_set_short_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -421,8 +441,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  /set_random on/off — 随机播放开关\n"
         "  /set_long_interval <分钟> — 长间隔时长\n"
         "  /set_long_duration <秒> — 长间隔播放时长\n"
-        "  /set_short_min <分钟> — 短间隔最小值\n"
-        "  /set_short_max <分钟> — 短间隔最大值\n"
+        "  /set_short_min <时长> — 短间隔最小值（如 3 或 30s）\n"
+        "  /set_short_max <时长> — 短间隔最大值（如 10 或 90s）\n"
         "  /set_short_duration <秒> — 短间隔播放时长\n"
         "  /set_test_duration <秒> — 测试播放时长\n\n"
         "📋 /status — 查看当前状态"
@@ -457,7 +477,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"  间隔：{state['long_interval_minutes']} 分钟\n"
         f"  播放时长：{state['long_duration_seconds']} 秒\n\n"
         f"⚡ 短间隔模式\n"
-        f"  间隔：{state['short_min_minutes']}～{state['short_max_minutes']} 分钟随机\n"
+        f"  间隔：{format_interval(state['short_min_seconds'])}～{format_interval(state['short_max_seconds'])} 随机\n"
         f"  播放时长：{state['short_duration_seconds']} 秒\n\n"
         f"🧪 测试时长：{state['test_duration_seconds']} 秒"
     )
