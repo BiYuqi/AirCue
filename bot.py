@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -28,14 +28,29 @@ LOG_PATH = Path(__file__).parent / "play.log"
 
 load_dotenv(ENV_PATH)
 
+
+def parse_duration(arg: str) -> int | None:
+    """解析时长参数，返回秒数。30s=30秒，2m=120秒，无后缀按分钟。"""
+    arg = arg.strip().lower()
+    if arg.endswith('s'):
+        num, multiplier = arg[:-1], 1
+    elif arg.endswith('m'):
+        num, multiplier = arg[:-1], 60
+    else:
+        num, multiplier = arg, 60
+    if not num.isdigit() or int(num) <= 0:
+        return None
+    return int(num) * multiplier
+
+
 state = {
     "current_audio": os.getenv("DEFAULT_AUDIO", "02_audio.m4a"),
     # long mode
     "long_interval_minutes": int(os.getenv("LONG_INTERVAL_MINUTES", "60")),
     "long_duration_seconds": int(os.getenv("LONG_DURATION_SECONDS", "60")),
-    # short mode（内部统一秒，兼容旧 _MINUTES 环境变量）
-    "short_min_seconds": int(os.getenv("SHORT_MIN_SECONDS") or "") if os.getenv("SHORT_MIN_SECONDS") else int(os.getenv("SHORT_MIN_MINUTES", "3")) * 60,
-    "short_max_seconds": int(os.getenv("SHORT_MAX_SECONDS") or "") if os.getenv("SHORT_MAX_SECONDS") else int(os.getenv("SHORT_MAX_MINUTES", "10")) * 60,
+    # short mode（内部统一秒，从 SHORT_MIN/MAX 解析，fallback 旧 _MINUTES 变量）
+    "short_min_seconds": parse_duration(os.getenv("SHORT_MIN", "")) or int(os.getenv("SHORT_MIN_MINUTES", "3")) * 60,
+    "short_max_seconds": parse_duration(os.getenv("SHORT_MAX", "")) or int(os.getenv("SHORT_MAX_MINUTES", "10")) * 60,
     "short_duration_seconds": int(os.getenv("SHORT_DURATION_SECONDS", "30")),
     # test
     "test_duration_seconds": int(os.getenv("TEST_DURATION_SECONDS", "20")),
@@ -124,20 +139,6 @@ def update_env(key: str, value: str) -> None:
     tmp = ENV_PATH.with_suffix(".tmp")
     tmp.write_text("\n".join(lines) + "\n")
     tmp.rename(ENV_PATH)
-
-
-def parse_duration(arg: str) -> int | None:
-    """解析时长参数，返回秒数。30s=30秒，2m=120秒，无后缀按分钟。"""
-    arg = arg.strip().lower()
-    if arg.endswith('s'):
-        num, multiplier = arg[:-1], 1
-    elif arg.endswith('m'):
-        num, multiplier = arg[:-1], 60
-    else:
-        num, multiplier = arg, 60
-    if not num.isdigit() or int(num) <= 0:
-        return None
-    return int(num) * multiplier
 
 
 def format_interval(seconds: int) -> str:
@@ -350,7 +351,7 @@ async def cmd_set_short_min(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"最小值必须小于当前最大值 {format_interval(state['short_max_seconds'])}")
         return
     state["short_min_seconds"] = seconds
-    update_env("SHORT_MIN_SECONDS", str(seconds))
+    update_env("SHORT_MIN", args[0])
     await update.message.reply_text(f"✅ 短间隔最小值已更新为 {format_interval(seconds)}")
 
 
@@ -364,7 +365,7 @@ async def cmd_set_short_max(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"最大值必须大于当前最小值 {format_interval(state['short_min_seconds'])}")
         return
     state["short_max_seconds"] = seconds
-    update_env("SHORT_MAX_SECONDS", str(seconds))
+    update_env("SHORT_MAX", args[0])
     await update.message.reply_text(f"✅ 短间隔最大值已更新为 {format_interval(seconds)}")
 
 
@@ -491,7 +492,27 @@ def main() -> None:
 
     _pkill_afplay()
 
-    app = ApplicationBuilder().token(token).build()
+    async def post_init(application):
+        await application.bot.set_my_commands([
+            BotCommand("help", "查看所有命令"),
+            BotCommand("status", "当前配置和运行状态"),
+            BotCommand("schedule_long", "启动长间隔模式（固定间隔）"),
+            BotCommand("schedule_short", "启动短间隔模式（随机间隔）"),
+            BotCommand("schedule_stop", "停止定时任务"),
+            BotCommand("test", "一次性测试播放"),
+            BotCommand("stop", "紧急停止所有音频"),
+            BotCommand("select", "选择音频文件"),
+            BotCommand("volume", "查看或设置系统音量"),
+            BotCommand("set_random", "随机播放开关 on/off"),
+            BotCommand("set_long_interval", "设置长间隔（分钟）"),
+            BotCommand("set_long_duration", "设置长间隔播放时长（秒）"),
+            BotCommand("set_short_min", "设置短间隔最小值（如 3、3m、30s）"),
+            BotCommand("set_short_max", "设置短间隔最大值（如 10、10m、90s）"),
+            BotCommand("set_short_duration", "设置短间隔播放时长（秒）"),
+            BotCommand("set_test_duration", "设置测试播放时长（秒）"),
+        ])
+
+    app = ApplicationBuilder().token(token).post_init(post_init).build()
 
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("schedule_long", cmd_schedule_long))

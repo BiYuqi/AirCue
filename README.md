@@ -52,8 +52,8 @@ cp env.example .env
 | `DEFAULT_AUDIO` | 02_audio.m4a | 默认音频文件名 |
 | `LONG_INTERVAL_MINUTES` | 60 | 长间隔模式播放间隔（分钟） |
 | `LONG_DURATION_SECONDS` | 60 | 长间隔模式每次播放时长（秒） |
-| `SHORT_MIN_MINUTES` | 3 | 短间隔模式最小间隔（分钟） |
-| `SHORT_MAX_MINUTES` | 10 | 短间隔模式最大间隔（分钟） |
+| `SHORT_MIN` | 3 | 短间隔模式最小间隔，支持 `3`（分钟）、`3m`、`30s` |
+| `SHORT_MAX` | 10 | 短间隔模式最大间隔，支持 `3`（分钟）、`3m`、`30s` |
 | `SHORT_DURATION_SECONDS` | 30 | 短间隔模式每次播放时长（秒） |
 | `TEST_DURATION_SECONDS` | 30 | 测试播放时长（秒） |
 | `RANDOM_ENABLED` | off | 随机播放开关（on/off） |
@@ -131,8 +131,8 @@ ffmpeg -i input.mp4 -vn -acodec copy output.m4a
 | `/set_random on/off` | 开关随机播放 |
 | `/set_long_interval <分钟>` | 设置长间隔 |
 | `/set_long_duration <秒>` | 设置长间隔播放时长 |
-| `/set_short_min <分钟>` | 设置短间隔最小值 |
-| `/set_short_max <分钟>` | 设置短间隔最大值 |
+| `/set_short_min <时长>` | 设置短间隔最小值（如 `3` 表示3分钟，`30s` 表示30秒） |
+| `/set_short_max <时长>` | 设置短间隔最大值（如 `10` 表示10分钟，`90s` 表示90秒） |
 | `/set_short_duration <秒>` | 设置短间隔播放时长 |
 | `/set_test_duration <秒>` | 设置测试播放时长 |
 | `/status` | 查看当前状态 |

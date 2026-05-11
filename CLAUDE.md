@@ -46,9 +46,9 @@ DEFAULT_AUDIO=02_audio.m4a
 LONG_INTERVAL_MINUTES=60       # 每隔多少分钟播放一次
 LONG_DURATION_SECONDS=60       # 每次播放多少秒
 
-# 短间隔模式：随机间隔播放
-SHORT_MIN_MINUTES=3            # 随机间隔最小分钟数
-SHORT_MAX_MINUTES=10           # 随机间隔最大分钟数
+# 短间隔模式：随机间隔播放（支持 3、3m、30s 格式，无后缀按分钟，fallback 旧 SHORT_MIN/MAX_MINUTES）
+SHORT_MIN=3                    # 随机间隔最小值
+SHORT_MAX=10                   # 随机间隔最大值
 SHORT_DURATION_SECONDS=30      # 每次播放多少秒
 
 # 测试播放时长
@@ -84,8 +84,8 @@ RANDOM_ENABLED=off
 | `/set_random on/off` | 开关随机播放模式 |
 | `/set_long_interval <分钟>` | 设置长间隔，如 `/set_long_interval 60` |
 | `/set_long_duration <秒>` | 设置长间隔播放时长，如 `/set_long_duration 60` |
-| `/set_short_min <分钟>` | 设置短间隔最小值，如 `/set_short_min 3` |
-| `/set_short_max <分钟>` | 设置短间隔最大值，如 `/set_short_max 10` |
+| `/set_short_min <时长>` | 设置短间隔最小值，如 `/set_short_min 3` 或 `/set_short_min 30s` |
+| `/set_short_max <时长>` | 设置短间隔最大值，如 `/set_short_max 10` 或 `/set_short_max 90s` |
 | `/set_short_duration <秒>` | 设置短间隔播放时长，如 `/set_short_duration 30` |
 | `/set_test_duration <秒>` | 设置测试播放时长，如 `/set_test_duration 30` |
 | `/status` | 查看当前配置和运行状态 |
@@ -144,8 +144,8 @@ state = {
     "current_audio": "02_audio.m4a",
     "long_interval_minutes": 60,
     "long_duration_seconds": 60,
-    "short_min_minutes": 3,
-    "short_max_minutes": 10,
+    "short_min_seconds": 180,
+    "short_max_seconds": 600,
     "short_duration_seconds": 30,
     "test_duration_seconds": 30,
     "random_enabled": False,
