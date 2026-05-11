@@ -129,15 +129,18 @@ def format_next_play(dt: datetime.datetime) -> str:
 def update_env(key: str, value: str) -> None:
     lines = ENV_PATH.read_text().splitlines()
     found = False
-    for i, line in enumerate(lines):
+    new_lines = []
+    for line in lines:
         if line.startswith(f"{key}="):
-            lines[i] = f"{key}={value}"
-            found = True
-            break
+            if not found:
+                new_lines.append(f"{key}={value}")
+                found = True
+        else:
+            new_lines.append(line)
     if not found:
-        lines.append(f"{key}={value}")
+        new_lines.append(f"{key}={value}")
     tmp = ENV_PATH.with_suffix(".tmp")
-    tmp.write_text("\n".join(lines) + "\n")
+    tmp.write_text("\n".join(new_lines) + "\n")
     tmp.rename(ENV_PATH)
 
 
