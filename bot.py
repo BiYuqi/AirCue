@@ -449,8 +449,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  /set_short_max <时长> — 短间隔最大值（如 10 或 90s）\n"
         "  /set_short_duration <秒> — 短间隔播放时长\n"
         "  /set_test_duration <秒> — 测试播放时长\n\n"
-        "📋 /status — 查看当前状态"
+        "📋 /status — 查看当前状态\n"
+        "  /readme — 查看 audio/readme 说明"
     )
+    await update.message.reply_text(text)
+
+
+async def cmd_readme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    readme_path = AUDIO_DIR / "readme.txt"
+    if not readme_path.exists():
+        await update.message.reply_text("audio/readme 文件不存在")
+        return
+    text = readme_path.read_text(encoding="utf-8")
     await update.message.reply_text(text)
 
 
@@ -513,6 +523,7 @@ def main() -> None:
             BotCommand("set_short_max", "设置短间隔最大值（如 10、10m、90s）"),
             BotCommand("set_short_duration", "设置短间隔播放时长（秒）"),
             BotCommand("set_test_duration", "设置测试播放时长（秒）"),
+            BotCommand("readme", "查看 audio/readme.txt 说明"),
         ])
 
     app = ApplicationBuilder().token(token).post_init(post_init).build()
@@ -533,6 +544,7 @@ def main() -> None:
     app.add_handler(CommandHandler("set_random", cmd_set_random))
     app.add_handler(CommandHandler("set_test_duration", cmd_set_test_duration))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("readme", cmd_readme))
     app.add_handler(CallbackQueryHandler(callback_select, pattern=r"^select:"))
 
     asyncio.set_event_loop(asyncio.new_event_loop())

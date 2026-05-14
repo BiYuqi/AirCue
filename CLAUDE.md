@@ -195,3 +195,17 @@ mp4 提取音频为 m4a：
 ```bash
 ffmpeg -i input.mp4 -vn -acodec copy output.m4a
 ```
+
+---
+
+## 开发规范
+
+### 新增 Telegram 命令 checklist
+
+每次新增命令，必须全部完成：
+
+1. 先用 `ls` 确认依赖的文件/目录真实存在，不能凭假设写代码
+2. 注册 `CommandHandler("xxx", cmd_xxx)` 到 handler 列表
+3. 在 `set_my_commands` 中添加 `BotCommand("xxx", "说明")` —— 否则 TG 菜单不会显示
+4. 在本文件命令列表表格中同步更新文档
+5. 重启 bot 后人工验证命令可用
