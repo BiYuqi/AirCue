@@ -42,6 +42,11 @@ TG_BOT_TOKEN=your_token_here
 
 DEFAULT_AUDIO=02_audio.m4a
 
+# 播放时间窗口（可选，支持跨天如 22:00～05:00）
+TIME_WINDOW_ENABLED=off
+TIME_WINDOW_START=08:00
+TIME_WINDOW_END=18:00
+
 # 长间隔模式：固定间隔播放
 LONG_INTERVAL_MINUTES=60       # 每隔多少分钟播放一次
 LONG_DURATION_SECONDS=60       # 每次播放多少秒
@@ -81,6 +86,8 @@ RANDOM_ENABLED=off
 ### 配置命令
 | 命令 | 说明 |
 |------|------|
+| `/set_window 08:00 18:00` | 设置播放时间窗口（支持跨天，如 22:00 05:00） |
+| `/set_window off` | 关闭时间窗口限制（全天可播） |
 | `/set_random on/off` | 开关随机播放模式 |
 | `/set_long_interval <分钟>` | 设置长间隔，如 `/set_long_interval 60` |
 | `/set_long_duration <秒>` | 设置长间隔播放时长，如 `/set_long_duration 60` |
@@ -150,6 +157,10 @@ state = {
     "test_duration_seconds": 30,
     "random_enabled": False,
     "last_played_audio": None,     # 随机模式不重复用
+    "time_window_enabled": False,  # 播放时间窗口开关
+    "time_window_start": None,     # "HH:MM"
+    "time_window_end": None,       # "HH:MM"
+    "was_in_window": None,         # 边缘检测用，post_init 初始化
     "schedule_mode": None,         # "long" or "short"
     "schedule_task": None,         # asyncio.Task
     "schedule_process": None,      # subprocess.Popen

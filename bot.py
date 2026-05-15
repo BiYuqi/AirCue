@@ -43,6 +43,20 @@ def parse_duration(arg: str) -> int | None:
     return int(num) * multiplier
 
 
+def parse_time(s: str) -> str | None:
+    """解析 HH:MM 格式时间，返回规范化字符串或 None。"""
+    try:
+        parts = s.strip().split(":")
+        if len(parts) != 2:
+            return None
+        h, m = int(parts[0]), int(parts[1])
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+    except Exception:
+        pass
+    return None
+
+
 state = {
     "current_audio": os.getenv("DEFAULT_AUDIO", "02_audio.m4a"),
     # long mode
@@ -57,6 +71,11 @@ state = {
     # random mode
     "random_enabled": os.getenv("RANDOM_ENABLED", "off") == "on",
     "last_played_audio": None,
+    # time window
+    "time_window_enabled": os.getenv("TIME_WINDOW_ENABLED", "off") == "on",
+    "time_window_start": os.getenv("TIME_WINDOW_START") or None,
+    "time_window_end": os.getenv("TIME_WINDOW_END") or None,
+    "was_in_window": None,  # 初始化在 post_init 里，用于边缘检测
     # runtime
     "schedule_mode": None,       # "long" or "short"
     "schedule_task": None,
@@ -65,6 +84,25 @@ state = {
     "test_process": None,
     "next_play_time": None,        # datetime，等待期间下次播放的预计时间
 }
+
+
+def in_time_window() -> bool:
+    """当前时间是否在播放窗口内。未启用窗口时始终返回 True。"""
+    if not state["time_window_enabled"]:
+        return True
+    start_str = state["time_window_start"]
+    end_str = state["time_window_end"]
+    if not start_str or not end_str:
+        return True
+    now = datetime.datetime.now().time().replace(second=0, microsecond=0)
+    sh, sm = map(int, start_str.split(":"))
+    eh, em = map(int, end_str.split(":"))
+    start = datetime.time(sh, sm)
+    end = datetime.time(eh, em)
+    if start <= end:
+        return start <= now <= end
+    else:  # 跨天，如 22:00～05:00
+        return now >= start or now <= end
 
 
 def kill_process(proc: subprocess.Popen | None) -> None:
@@ -210,7 +248,8 @@ async def schedule_loop(mode: str) -> None:
         await asyncio.sleep(wait)
 
 
-def _start_schedule(mode: str) -> None:
+def _start_schedule(mode: str) -> bool:
+    """启动调度任务。返回 True=立即启动，False=窗口外已注册等待。"""
     task = state["schedule_task"]
     if task and not task.done():
         task.cancel()
@@ -219,33 +258,89 @@ def _start_schedule(mode: str) -> None:
         state["schedule_playing"] = False
     state["schedule_mode"] = mode
     state["next_play_time"] = None
-    state["schedule_task"] = asyncio.create_task(schedule_loop(mode))
+    if in_time_window():
+        state["schedule_task"] = asyncio.create_task(schedule_loop(mode))
+        return True
+    else:
+        state["schedule_task"] = None
+        return False
+
+
+async def window_watcher() -> None:
+    """每 30 秒检查时间窗口边缘，触发 schedule 的自动启停。"""
+    while True:
+        await asyncio.sleep(30)
+        if not state["time_window_enabled"]:
+            state["was_in_window"] = None
+            continue
+        now_in = in_time_window()
+        was_in = state["was_in_window"]
+        if was_in is None:
+            state["was_in_window"] = now_in
+            continue
+        if not was_in and now_in:
+            # 窗口外 → 窗口内：恢复 schedule
+            mode = state["schedule_mode"]
+            task = state["schedule_task"]
+            if mode and (not task or task.done()):
+                logging.info("window_watcher: entering window, resuming schedule mode=%s", mode)
+                state["schedule_task"] = asyncio.create_task(schedule_loop(mode))
+                state["next_play_time"] = None
+        elif was_in and not now_in:
+            # 窗口内 → 窗口外：暂停 schedule，保留 mode
+            logging.info("window_watcher: leaving window, suspending schedule")
+            task = state["schedule_task"]
+            if task and not task.done():
+                task.cancel()
+                state["schedule_task"] = None
+            kill_process(state["schedule_process"])
+            state["schedule_process"] = None
+            state["schedule_playing"] = False
+            state["next_play_time"] = None
+        state["was_in_window"] = now_in
 
 
 async def cmd_schedule_long(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    _start_schedule("long")
-    await update.message.reply_text(
-        f"✅ 长间隔模式已启动\n"
-        f"⏰ 间隔：{state['long_interval_minutes']} 分钟\n"
-        f"🔊 播放时长：{state['long_duration_seconds']} 秒"
-    )
+    started = _start_schedule("long")
+    if started:
+        await update.message.reply_text(
+            f"✅ 长间隔模式已启动\n"
+            f"⏰ 间隔：{state['long_interval_minutes']} 分钟\n"
+            f"🔊 播放时长：{state['long_duration_seconds']} 秒"
+        )
+    else:
+        window_str = f"{state['time_window_start']}～{state['time_window_end']}"
+        await update.message.reply_text(
+            f"✅ 长间隔模式已注册\n"
+            f"⏸ 当前不在播放窗口（{window_str}），进入窗口后自动开始"
+        )
 
 
 async def cmd_schedule_short(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    _start_schedule("short")
-    await update.message.reply_text(
-        f"✅ 短间隔模式已启动\n"
-        f"⏰ 间隔：{format_interval(state['short_min_seconds'])}～{format_interval(state['short_max_seconds'])} 随机\n"
-        f"🔊 播放时长：{state['short_duration_seconds']} 秒"
-    )
+    started = _start_schedule("short")
+    if started:
+        await update.message.reply_text(
+            f"✅ 短间隔模式已启动\n"
+            f"⏰ 间隔：{format_interval(state['short_min_seconds'])}～{format_interval(state['short_max_seconds'])} 随机\n"
+            f"🔊 播放时长：{state['short_duration_seconds']} 秒"
+        )
+    else:
+        window_str = f"{state['time_window_start']}～{state['time_window_end']}"
+        await update.message.reply_text(
+            f"✅ 短间隔模式已注册\n"
+            f"⏸ 当前不在播放窗口（{window_str}），进入窗口后自动开始"
+        )
 
 
 async def cmd_schedule_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     task = state["schedule_task"]
-    if not task or task.done():
+    mode = state["schedule_mode"]
+    # 窗口外待机中（mode 有值但 task 为空）也算"运行中"
+    if (not task or task.done()) and not mode:
         await update.message.reply_text("定时任务未在运行")
         return
-    task.cancel()
+    if task and not task.done():
+        task.cancel()
     state["schedule_task"] = None
     state["schedule_mode"] = None
     state["next_play_time"] = None
@@ -320,6 +415,81 @@ async def callback_select(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     state["current_audio"] = filename
     update_env("DEFAULT_AUDIO", filename)
     await query.edit_message_text(f"✅ 已切换到 {filename}")
+
+
+async def cmd_set_window(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "用法：\n"
+            "  /set_window 08:00 18:00 — 设置播放窗口\n"
+            "  /set_window off — 关闭窗口限制（全天可播）"
+        )
+        return
+
+    if args[0].lower() == "off":
+        state["time_window_enabled"] = False
+        state["time_window_start"] = None
+        state["time_window_end"] = None
+        state["was_in_window"] = None
+        update_env("TIME_WINDOW_ENABLED", "off")
+        # 如果有待机中的 schedule，立即启动
+        mode = state["schedule_mode"]
+        task = state["schedule_task"]
+        if mode and (not task or task.done()):
+            state["schedule_task"] = asyncio.create_task(schedule_loop(mode))
+            await update.message.reply_text("✅ 播放窗口已关闭（全天可播）\n▶ 已恢复定时任务运行")
+        else:
+            await update.message.reply_text("✅ 播放窗口已关闭（全天可播）")
+        return
+
+    if len(args) < 2:
+        await update.message.reply_text("用法：/set_window 08:00 18:00")
+        return
+
+    start_str = parse_time(args[0])
+    end_str = parse_time(args[1])
+    if not start_str or not end_str:
+        await update.message.reply_text("时间格式错误，请用 HH:MM，如 08:00 18:00")
+        return
+    if start_str == end_str:
+        await update.message.reply_text("开始时间和结束时间不能相同")
+        return
+
+    state["time_window_enabled"] = True
+    state["time_window_start"] = start_str
+    state["time_window_end"] = end_str
+    update_env("TIME_WINDOW_ENABLED", "on")
+    update_env("TIME_WINDOW_START", start_str)
+    update_env("TIME_WINDOW_END", end_str)
+
+    currently_in = in_time_window()
+    state["was_in_window"] = currently_in
+
+    cross = "（跨天）" if start_str > end_str else ""
+    window_str = f"{start_str}～{end_str}{cross}"
+
+    if currently_in:
+        await update.message.reply_text(f"✅ 播放窗口已设置：{window_str}\n当前在窗口内，定时任务不受影响")
+    else:
+        # 当前窗口外：暂停正在运行的 schedule
+        task = state["schedule_task"]
+        if task and not task.done():
+            task.cancel()
+            state["schedule_task"] = None
+        kill_process(state["schedule_process"])
+        state["schedule_process"] = None
+        state["schedule_playing"] = False
+        state["next_play_time"] = None
+        mode = state["schedule_mode"]
+        if mode:
+            mode_label = "长间隔" if mode == "long" else "短间隔"
+            await update.message.reply_text(
+                f"✅ 播放窗口已设置：{window_str}\n"
+                f"⏸ 当前窗口外，{mode_label}任务已挂起，进入窗口后自动恢复"
+            )
+        else:
+            await update.message.reply_text(f"✅ 播放窗口已设置：{window_str}\n当前窗口外")
 
 
 async def cmd_set_long_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -442,6 +612,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  /volume — 查看音量\n"
         "  /volume <0-100> — 设置音量\n\n"
         "⚙️ 配置\n"
+        "  /set_window 08:00 18:00 — 设置播放时间窗口\n"
+        "  /set_window off — 关闭时间窗口限制\n"
         "  /set_random on/off — 随机播放开关\n"
         "  /set_long_interval <分钟> — 长间隔时长\n"
         "  /set_long_duration <秒> — 长间隔播放时长\n"
@@ -466,19 +638,32 @@ async def cmd_readme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     task = state["schedule_task"]
-    running = task and not task.done()
     mode = state["schedule_mode"]
-    if running and state["schedule_playing"]:
+    task_running = task and not task.done()
+
+    if task_running and state["schedule_playing"]:
         mode_label = "长间隔" if mode == "long" else "短间隔"
         schedule_str = f"运行中（{mode_label}，播放中）"
-    elif running and state["next_play_time"]:
+    elif task_running and state["next_play_time"]:
         mode_label = "长间隔" if mode == "long" else "短间隔"
         schedule_str = f"运行中（{mode_label}）\n⏭ 下次播放：{format_next_play(state['next_play_time'])}"
-    elif running:
+    elif task_running:
         mode_label = "长间隔" if mode == "long" else "短间隔"
         schedule_str = f"运行中（{mode_label}）"
+    elif mode and state["time_window_enabled"] and not in_time_window():
+        mode_label = "长间隔" if mode == "long" else "短间隔"
+        window_str = f"{state['time_window_start']}～{state['time_window_end']}"
+        schedule_str = f"待机中（{mode_label}，窗口外 {window_str}）"
     else:
         schedule_str = "已停止"
+
+    # 窗口状态
+    if state["time_window_enabled"] and state["time_window_start"] and state["time_window_end"]:
+        cross = "（跨天）" if state["time_window_start"] > state["time_window_end"] else ""
+        window_status = "窗口内 ✅" if in_time_window() else "窗口外 ⏸"
+        window_line = f"⏰ 播放窗口：{state['time_window_start']}～{state['time_window_end']}{cross}（当前{window_status}）\n"
+    else:
+        window_line = "⏰ 播放窗口：未设置（全天可播）\n"
 
     random_str = "开启" if state["random_enabled"] else "关闭"
     audio_str = f"{state['current_audio']}（随机）" if state["random_enabled"] else state["current_audio"]
@@ -486,6 +671,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "📋 当前状态\n\n"
         f"▶ 音频文件：{audio_str}\n"
         f"🔀 随机播放：{random_str}\n"
+        f"{window_line}"
         f"⏱ 定时任务：{schedule_str}\n\n"
         f"📏 长间隔模式\n"
         f"  间隔：{state['long_interval_minutes']} 分钟\n"
@@ -506,6 +692,11 @@ def main() -> None:
     _pkill_afplay()
 
     async def post_init(application):
+        # 初始化窗口边缘检测基准值，防止启动瞬间误触发
+        state["was_in_window"] = in_time_window() if state["time_window_enabled"] else None
+        # 启动时间窗口监控任务
+        asyncio.create_task(window_watcher())
+
         await application.bot.set_my_commands([
             BotCommand("help", "查看所有命令"),
             BotCommand("status", "当前配置和运行状态"),
@@ -516,6 +707,7 @@ def main() -> None:
             BotCommand("stop", "紧急停止所有音频"),
             BotCommand("select", "选择音频文件"),
             BotCommand("volume", "查看或设置系统音量"),
+            BotCommand("set_window", "设置播放时间窗口"),
             BotCommand("set_random", "随机播放开关 on/off"),
             BotCommand("set_long_interval", "设置长间隔（分钟）"),
             BotCommand("set_long_duration", "设置长间隔播放时长（秒）"),
@@ -536,6 +728,7 @@ def main() -> None:
     app.add_handler(CommandHandler("test", cmd_test))
     app.add_handler(CommandHandler("select", cmd_select))
     app.add_handler(CommandHandler("volume", cmd_volume))
+    app.add_handler(CommandHandler("set_window", cmd_set_window))
     app.add_handler(CommandHandler("set_long_interval", cmd_set_long_interval))
     app.add_handler(CommandHandler("set_long_duration", cmd_set_long_duration))
     app.add_handler(CommandHandler("set_short_min", cmd_set_short_min))
